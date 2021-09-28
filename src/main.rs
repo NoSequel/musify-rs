@@ -121,7 +121,7 @@ async fn play(ctx: &Context, msg: &Message) -> CommandResult {
     let mut queue = queue_lock.write().await;
 
     queue.join_channel(ctx, guild, connect_to).await;
-    queue.add_to_queue(video).await;
+    queue.add_to_queue(ctx, video).await;
 
     Ok(())
 }
