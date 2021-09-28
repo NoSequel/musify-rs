@@ -14,7 +14,7 @@ use tokio::sync::RwLock;
 
 #[derive(Clone)]
 pub struct Queue {
-    sources: Vec<String>,
+    pub sources: Vec<String>,
     channel_id: ChannelId,
     currently_playing: bool,
     voice: Option<Arc<serenity::prelude::Mutex<Call>>>,

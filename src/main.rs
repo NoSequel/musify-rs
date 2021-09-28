@@ -110,15 +110,28 @@ async fn play(ctx: &Context, msg: &Message) -> CommandResult {
         }
     };
 
-    check_msg(
-        msg.reply(
-            ctx,
-            "Finished downloading video, attempting to play source.",
-        )
-        .await,
-    );
-
     let mut queue = queue_lock.write().await;
+
+    check_msg(
+        msg.channel_id
+            .send_message(&ctx.http, |message| {
+                message.embed(|builder| {
+                    builder.title(":musical_note: Current Queue");
+
+                    let mut current_index = 0;
+
+                    for source in &queue.sources {
+                        current_index += 1;
+                        builder.field(format!("{}.", current_index), format!("{}", source), false);
+                    }
+
+                    builder
+                });
+
+                message
+            })
+            .await,
+    );
 
     queue.join_channel(ctx, guild, connect_to).await;
     queue.add_to_queue(ctx, video).await;
