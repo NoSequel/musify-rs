@@ -1,10 +1,9 @@
 mod queue;
+use std::env;
 use std::sync::Arc;
 
 use queue::{Queue, QueueData};
 use songbird::SerenityInit;
-
-// Import the `Context` to handle commands.
 use serenity::client::Context;
 
 use serenity::{
@@ -37,8 +36,10 @@ struct General;
 
 #[tokio::main]
 async fn main() {
-    // Configure the client with your Discord bot token in the environment.
-    let token = "ODkxODUyNjA5Mjg2MTkzMTgy.YVEYdw.P9sY3Ui55JNueu9IyjTDMwU9SdY";
+    let token = match env::var("DISCORD_TOKEN") {
+        Ok(token) => token,
+        Err(_) => (&env::args().collect::<Vec<String>>()[1]).to_owned(),
+    };
 
     let framework = StandardFramework::new()
         .configure(|c| c.prefix("~"))
@@ -75,7 +76,6 @@ async fn play(ctx: &Context, msg: &Message) -> CommandResult {
     };
 
     let arguments = msg.content.split(" ").collect::<Vec<&str>>();
-
     let guild = msg.guild(&ctx.cache).await.unwrap();
 
     let channel_id = guild
@@ -112,6 +112,8 @@ async fn play(ctx: &Context, msg: &Message) -> CommandResult {
 
     let mut queue = queue_lock.write().await;
 
+    queue.add_to_queue(video).await;
+
     check_msg(
         msg.channel_id
             .send_message(&ctx.http, |message| {
@@ -134,7 +136,6 @@ async fn play(ctx: &Context, msg: &Message) -> CommandResult {
     );
 
     queue.join_channel(ctx, guild, connect_to).await;
-    queue.add_to_queue(ctx, video).await;
 
     Ok(())
 }
@@ -142,17 +143,20 @@ async fn play(ctx: &Context, msg: &Message) -> CommandResult {
 #[command]
 async fn stop(ctx: &Context, msg: &Message) -> CommandResult {
     let guild = msg.guild(&ctx.cache).await.unwrap();
-    let guild_id = guild.id;
 
-    let manager = songbird::get(ctx)
-        .await
-        .expect("Songbird Voice client placed in at initialisation.")
-        .clone();
+    let queue_lock = {
+        let data = ctx.data.read().await;
 
-    let _ = manager.leave(guild_id).await;
+        data.get::<QueueData>()
+            .expect("Expected QueueData in TypeMap.")
+            .clone()
+    };
 
+    let mut queue = queue_lock.write().await;
+
+    queue.leave_channel(ctx, guild).await;
     check_msg(
-        msg.reply(ctx, format!("I have stopped playing `{}`", "song"))
+        msg.reply(ctx, format!("Stopped playing {:?}", queue.current_song))
             .await,
     );
 
@@ -166,6 +170,8 @@ async fn download_video(term: &str) -> Option<String> {
             Err(_) => None,
         };
     } else {
+        // todo: search for youtube videos with the provided terms
+        // maybe change to a different youtube api for video metadata.
     }
 
     return None;

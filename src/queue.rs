@@ -15,8 +15,9 @@ use tokio::sync::RwLock;
 #[derive(Clone)]
 pub struct Queue {
     pub sources: Vec<String>,
+    pub current_song: Option<String>,
+
     channel_id: ChannelId,
-    currently_playing: bool,
     voice: Option<Arc<serenity::prelude::Mutex<Call>>>,
 }
 
@@ -25,7 +26,7 @@ impl Queue {
         Self {
             sources: Vec::new(),
             channel_id: ChannelId(0),
-            currently_playing: false,
+            current_song: None,
             voice: None,
         }
     }
@@ -40,16 +41,26 @@ impl Queue {
 
         self.channel_id = channel_id;
         self.voice = Some(handler_lock);
-    }
 
-    pub async fn add_to_queue(&mut self, context: &Context, path: String) {
-        self.sources.push(path);
-
-        if !self.currently_playing {
+        if self.current_song == None {
             self.play_newest_in_queue(context).await;
         }
+    }
 
-        println!("{:?}", self.sources);
+    pub async fn leave_channel(&mut self, context: &Context, guild: Guild) {
+        let manager = songbird::get(context)
+            .await
+            .expect("Songbird Voice client placed in at initialisation.")
+            .clone();
+
+        manager
+            .leave(guild.id)
+            .await
+            .expect("Unable to leave the provided channel.");
+    }
+
+    pub async fn add_to_queue(&mut self, path: String) {
+        self.sources.push(path);
     }
 
     pub async fn play_newest_in_queue(&mut self, context: &Context) {
@@ -60,12 +71,7 @@ impl Queue {
     pub async fn play_song(&mut self, context: &Context, source: String) {
         match &mut self.voice {
             Some(voice) => {
-                self.sources.remove(
-                    self.sources
-                        .iter()
-                        .position(|string| string == &source)
-                        .unwrap(),
-                );
+                self.current_song = Some(source.clone());
 
                 let source = Compressed::new(
                     input::ffmpeg(format!("./{}", &source))
@@ -76,8 +82,6 @@ impl Queue {
                 .expect("These parameters are well-defined");
 
                 let song = voice.lock().await.play_only_source(source.into());
-
-                self.currently_playing = true;
 
                 song.add_event(
                     Event::Track(TrackEvent::End),
@@ -108,6 +112,20 @@ impl EventHandler for QueueEventWrapper {
         };
 
         let mut queue = queue_lock.write().await;
+
+        match queue.current_song.clone() {
+            Some(song) => {
+                let index = queue
+                    .clone()
+                    .sources
+                    .iter()
+                    .position(|string| string == &song)
+                    .unwrap();
+
+                queue.sources.remove(index);
+            }
+            None => {}
+        };
 
         if !queue.sources.is_empty() {
             queue.play_newest_in_queue(&self.context).await;
